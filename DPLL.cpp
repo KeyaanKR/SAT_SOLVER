@@ -8,33 +8,63 @@ private:
   int n_prop = 0, n_decs = 0;
 
   std::unordered_map<std::string, double> score_map;
-  double decay_factor = 0.95;
+  std::vector<std::string> variable_order;
 
-  void update_scores(const std::vector<std::string> &literals) {
-    for (const auto &literal : literals) {
-      if (score_map.find(literal) == score_map.end())
-        score_map[literal] = 1;
-      else
-        score_map[literal]++;
-    }
-  }
+  int conflicts = 0;
+  const double bonus = 1.0;
+  const double level_factor = 2.0;
+  const int level_interval = 1000;
 
-  void decay_scores() {
-    for (auto &literal : score_map) {
-      literal.second *= decay_factor;
-    }
-  }
-
-  std::string decision_heuristic() {
-    double max_score = -1;
-    std::string max_literal;
-    for (const auto &literal : score_map) {
-      if (literal.second > max_score) {
-        max_score = literal.second;
-        max_literal = literal.first;
+  void initialize_scores(const std::vector<std::string> &cnf) {
+    for (const auto &clause : cnf) {
+      std::istringstream iss(clause);
+      std::string literal;
+      while (iss >> literal) {
+        std::string var = (literal[0] == '~') ? literal.substr(1) : literal;
+        if (score_map.find(var) == score_map.end()) {
+          score_map[var] = 0.0;
+        }
+        score_map[var] += 1.0;
       }
     }
-    return max_literal;
+    update_variable_order();
+  }
+
+  void update_variable_order() {
+    variable_order.clear();
+    for (const auto &entry : score_map) {
+      variable_order.push_back(entry.first);
+    }
+    std::sort(variable_order.begin(), variable_order.end(),
+              [this](const std::string &a, const std::string &b) {
+                return score_map[a] > score_map[b];
+              });
+  }
+
+  std::string decision(std::set<std::string> &literals) {
+    for (const auto &var : variable_order) {
+      if (literals.find(var) != literals.end()) {
+        return var;
+      }
+    }
+    return *literals.begin();
+  }
+
+  void update_scores(const std::vector<std::string> &learned_clause) {
+    for (const auto &literal : learned_clause) {
+      std::string var = (literal[0] == '~') ? literal.substr(1) : literal;
+      score_map[var] += bonus;
+    }
+
+    conflicts++;
+
+    if (conflicts % level_interval == 0) {
+      for (auto &entry : score_map) {
+        entry.second /= level_factor;
+      }
+    }
+
+    update_variable_order();
   }
 
   void print_cnf(const std::vector<std::string> &cnf) {
@@ -141,11 +171,12 @@ private:
   }
 
   bool solve(std::vector<std::string> cnf, std::set<std::string> literals) {
-    std::cout << "\nCNF = ";
-    print_cnf(cnf);
+    // std::cout << "\nCNF = ";
+    // print_cnf(cnf);
 
     std::vector<std::string> new_t, new_f;
     n_decs++;
+    std::clog << "\rDecision: " << n_decs << std::flush;
 
     // remove duplicate clauses
     std::sort(cnf.begin(), cnf.end());
@@ -183,11 +214,11 @@ private:
       }
     }
 
-    std::cout << "units = ";
-    for (const auto &unit : units)
-      std::cout << unit << " ";
-    std::cout << "\nCNF after unit propagation = ";
-    print_cnf(cnf);
+    // std::cout << "units = ";
+    // for (const auto &unit : units)
+    //   std::cout << unit << " ";
+    // std::cout << "\nCNF after unit propagation = ";
+    // print_cnf(cnf);
 
     // if the cnf is empty, return true
     if (cnf.empty())
@@ -200,7 +231,7 @@ private:
         assign_t.erase(literal);
       for (std::string literal : new_f)
         assign_f.erase(literal);
-      std::cout << "Null clause found, backtracking..." << std::endl;
+      // std::cout << "Null clause found, backtracking..." << std::endl;
       return false;
     }
 
@@ -218,7 +249,7 @@ private:
     }
 
     if (!literals.empty()) {
-      std::string literal = *literals.begin();
+      std::string literal = decision(literals);
       std::vector<std::string> new_cnf = cnf;
       new_cnf.push_back(literal);
 
@@ -229,6 +260,10 @@ private:
       new_cnf.push_back("~" + literal);
       if (solve(new_cnf, literals))
         return true;
+
+      std::vector<std::string> learned_clause = {
+          (literal[0] == '~') ? literal.substr(1) : "~" + literal};
+      update_scores(learned_clause);
     }
 
     for (std::string literal : new_t)
@@ -262,6 +297,8 @@ public:
           literals.insert(literal);
       }
     }
+
+    initialize_scores(cnf);
 
     if (solve(cnf, literals)) {
       std::cout << "\nNumber of Splits = " << n_decs << std::endl;
