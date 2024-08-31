@@ -1,20 +1,49 @@
 #include <bits/stdc++.h>
 #include <sstream>
+#include <unordered_map>
 
 class DPLL {
 private:
   std::set<std::string> assign_t, assign_f;
   int n_prop = 0, n_decs = 0;
 
+  std::unordered_map<std::string, double> score_map;
+  double decay_factor = 0.95;
+
+  void update_scores(const std::vector<std::string> &literals) {
+    for (const auto &literal : literals) {
+      if (score_map.find(literal) == score_map.end())
+        score_map[literal] = 1;
+      else
+        score_map[literal]++;
+    }
+  }
+
+  void decay_scores() {
+    for (auto &literal : score_map) {
+      literal.second *= decay_factor;
+    }
+  }
+
+  std::string decision_heuristic() {
+    double max_score = -1;
+    std::string max_literal;
+    for (const auto &literal : score_map) {
+      if (literal.second > max_score) {
+        max_score = literal.second;
+        max_literal = literal.first;
+      }
+    }
+    return max_literal;
+  }
+
   void print_cnf(const std::vector<std::string> &cnf) {
     std::string CNF;
     // parse through the cnf
     for (const auto &clause : cnf) {
       // if the clause is not empty, add it to the string
-      if (!clause.empty()) {
+      if (!clause.empty())
         CNF += "(" + clause + ")";
-        std::replace(CNF.begin(), CNF.end(), ' ', '+');
-      }
     }
     // if the string is empty, add an empty clause
     if (CNF.empty())
@@ -40,23 +69,21 @@ private:
       std::vector<std::string> words;
       std::string word;
 
-      // Split clause into words
       while (iss >> word) {
         if (word != unit) {
-          words.push_back(word); // Only keep the word if it's not the unit
+          // Only keep the word if it's not the unit
+          words.push_back(word);
         }
       }
 
-      // Join the remaining words back into the clause
       std::ostringstream oss;
       for (size_t i = 0; i < words.size(); ++i) {
         if (i > 0) {
-          oss << " "; // Add space between words
+          oss << " ";
         }
         oss << words[i];
       }
 
-      // Update the clause with the modified content
       clause = oss.str();
     }
   }
@@ -67,19 +94,55 @@ private:
                                std::istringstream iss(clause);
                                std::string word;
                                while (iss >> word) {
-                                 // Check if the exact unit is in the clause
+                                 // if the unit is found in the clause, remove
+                                 // the clause
                                  if (word == unit) {
-                                   return true; // Mark for removal
+                                   return true;
                                  }
                                }
-                               return false; // Not marked for removal
+                               return false;
                              }),
-              cnf.end()); // Remove clauses that contain the unit
+              cnf.end());
+  }
+
+  void find_pureLiterals(std::vector<std::string> cnf,
+                         std::vector<std::string> &pureLiterals) {
+    std::unordered_map<std::string, int> posLiteralCount;
+    std::unordered_map<std::string, int> negLiteralCount;
+
+    for (const auto &clause : cnf) {
+      std::istringstream iss(clause);
+      std::string literal;
+      while (iss >> literal) {
+        if (literal[0] == '~') {
+          negLiteralCount[literal.substr(1)]++;
+        } else {
+          posLiteralCount[literal]++;
+        }
+      }
+    }
+
+    for (const auto &literal : posLiteralCount) {
+      if (literal.second > 0 && negLiteralCount[literal.first] == 0) {
+        // to prevent unit clause from being added to pureLiterals
+        if (std::find(pureLiterals.begin(), pureLiterals.end(),
+                      literal.first) == pureLiterals.end())
+          pureLiterals.push_back(literal.first);
+      }
+    }
+
+    for (const auto &literal : negLiteralCount) {
+      if (literal.second > 0 && posLiteralCount[literal.first] == 0) {
+        if (std::find(pureLiterals.begin(), pureLiterals.end(),
+                      "~" + literal.first) == pureLiterals.end())
+          pureLiterals.push_back("~" + literal.first);
+      }
+    }
   }
 
   bool solve(std::vector<std::string> cnf, std::set<std::string> literals) {
-    // std::cout << "\nCNF = ";
-    // print_cnf(cnf);
+    std::cout << "\nCNF = ";
+    print_cnf(cnf);
 
     std::vector<std::string> new_t, new_f;
     n_decs++;
@@ -93,6 +156,9 @@ private:
     std::copy_if(
         cnf.begin(), cnf.end(), std::back_inserter(units),
         [this](const std::string &clause) { return is_unit_clause(clause); });
+
+    // find pure literals
+    find_pureLiterals(cnf, units);
 
     // if there are unit clauses
     if (!units.empty()) {
@@ -117,11 +183,11 @@ private:
       }
     }
 
-    // std::cout << "units = ";
-    // for (const auto &unit : units)
-    //   std::cout << unit << " ";
-    // std::cout << "\nCNF after unit propagation = ";
-    // print_cnf(cnf);
+    std::cout << "units = ";
+    for (const auto &unit : units)
+      std::cout << unit << " ";
+    std::cout << "\nCNF after unit propagation = ";
+    print_cnf(cnf);
 
     // if the cnf is empty, return true
     if (cnf.empty())
@@ -134,7 +200,7 @@ private:
         assign_t.erase(literal);
       for (std::string literal : new_f)
         assign_f.erase(literal);
-      // std::cout << "Null clause found, backtracking..." << std::endl;
+      std::cout << "Null clause found, backtracking..." << std::endl;
       return false;
     }
 
