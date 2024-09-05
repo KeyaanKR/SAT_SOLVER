@@ -1,6 +1,4 @@
 #include <bits/stdc++.h>
-#include <sstream>
-#include <unordered_map>
 
 class DPLL {
 private:
@@ -15,6 +13,7 @@ private:
   const double level_factor = 2.0;
   const int level_interval = 1000;
 
+  // initialize the scores to the frequency of the variables in the clauses
   void initialize_scores(const std::vector<std::string> &cnf) {
     for (const auto &clause : cnf) {
       std::istringstream iss(clause);
@@ -30,6 +29,7 @@ private:
     update_variable_order();
   }
 
+  // arrange the variables in descending order
   void update_variable_order() {
     variable_order.clear();
     for (const auto &entry : score_map) {
@@ -41,6 +41,7 @@ private:
               });
   }
 
+  // choose the variable with maxmium score
   std::string decision(std::set<std::string> &literals) {
     for (const auto &var : variable_order) {
       if (literals.find(var) != literals.end()) {
@@ -50,6 +51,7 @@ private:
     return *literals.begin();
   }
 
+  // give bonus to the variables in the learned clause, and level the scores
   void update_scores(const std::vector<std::string> &learned_clause) {
     for (const auto &literal : learned_clause) {
       std::string var = (literal[0] == '~') ? literal.substr(1) : literal;
@@ -171,9 +173,6 @@ private:
   }
 
   bool solve(std::vector<std::string> cnf, std::set<std::string> literals) {
-    // std::cout << "\nCNF = ";
-    // print_cnf(cnf);
-
     std::vector<std::string> new_t, new_f;
     n_decs++;
     std::clog << "\rDecision: " << n_decs << std::flush;
@@ -214,24 +213,17 @@ private:
       }
     }
 
-    // std::cout << "units = ";
-    // for (const auto &unit : units)
-    //   std::cout << unit << " ";
-    // std::cout << "\nCNF after unit propagation = ";
-    // print_cnf(cnf);
-
     // if the cnf is empty, return true
     if (cnf.empty())
       return true;
-    // if there is an empty clause, return false and backtrack
+    // if there is an empty clause, return false
     if (std::any_of(cnf.begin(), cnf.end(),
                     [](const std::string &clause) { return clause.empty(); })) {
-      // remove the assignments and backtrack
+      // remove the assignments
       for (std::string literal : new_t)
         assign_t.erase(literal);
       for (std::string literal : new_f)
         assign_f.erase(literal);
-      // std::cout << "Null clause found, backtracking..." << std::endl;
       return false;
     }
 
@@ -301,8 +293,6 @@ public:
     initialize_scores(cnf);
 
     if (solve(cnf, literals)) {
-      std::cout << "\nNumber of Splits = " << n_decs << std::endl;
-      std::cout << "Unit Propagations = " << n_prop << std::endl;
       std::cout << "\nResult: SATISFIABLE" << std::endl;
       std::cout << "Solution:" << std::endl;
       for (std::string literal : assign_t)
@@ -310,9 +300,6 @@ public:
       for (std::string literal : assign_f)
         std::cout << "\t\t" << literal << " = False" << std::endl;
     } else {
-      std::cout << "\nReached starting node!" << std::endl;
-      std::cout << "Number of Splits = " << n_decs << std::endl;
-      std::cout << "Unit Propagations = " << n_prop << std::endl;
       std::cout << "\nResult: UNSATISFIABLE" << std::endl;
     }
     std::cout << std::endl;
