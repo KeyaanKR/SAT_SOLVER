@@ -294,11 +294,13 @@ public:
 
     if (solve(cnf, literals)) {
       std::cout << "\nResult: SATISFIABLE" << std::endl;
-      std::cout << "Solution:" << std::endl;
-      for (std::string literal : assign_t)
-        std::cout << "\t\t" << literal << " = True" << std::endl;
-      for (std::string literal : assign_f)
-        std::cout << "\t\t" << literal << " = False" << std::endl;
+      std::cout << "Solution written output_dpll.txt" << std::endl;
+      std::ofstream output("output_dpll.txt");
+      for (const auto &literal : assign_t)
+        output << literal << std::endl;
+      for (const auto &literal : assign_f)
+        output << "~" << literal << std::endl;
+      output.close();
     } else {
       std::cout << "\nResult: UNSATISFIABLE" << std::endl;
     }
