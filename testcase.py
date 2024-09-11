@@ -23,5 +23,5 @@ def generate_combinations_to_file(n, file_name, sample_size=10):
 
 # Generate combinations for numbers from 1 to 1024 and write to a file with a sample size limit
 generate_combinations_to_file(
-    20, "combinations.txt", sample_size=1048576
+    20, "combinations.txt", sample_size=1024 * 1024
 )  # Adjust sample size as needed
