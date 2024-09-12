@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Path to the folder containing the .cnf files
-folder="$HOME/Desktop/SAT_SOLVER/TESTCASES/UUF"
+folder="$HOME/Desktop/SAT_SOLVER/TESTCASES/LRAN"
 
 # Loop through all .cnf files in the folder
 for file in "$folder"/*.cnf; do

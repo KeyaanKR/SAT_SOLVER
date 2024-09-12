@@ -1,5 +1,4 @@
 #include <bits/stdc++.h>
-#include <fstream>
 
 class ENCODER {
 public:
@@ -172,7 +171,6 @@ public:
       }
 
       if (line[0] != '~') {
-        // Assuming the line contains variable in the form of "var"
         int row = (line[0] - '0');
         int col = (line[1] - '0');
         int num = (line[2] - '0');
@@ -210,16 +208,15 @@ int main() {
   encoder.loadSOL("output_dpll.txt");
   encoder.printSudoku();
 
-  // Safely remove the files
   if (remove("sudoku.cnf") != 0) {
     std::cerr << "Error deleting sudoku.cnf" << std::endl;
   } else {
-    std::cout << "sudoku.cnf is deleted successfully" << std::endl;
+    std::cout << "\nsudoku.cnf is deleted successfully";
   }
   if (remove("output_dpll.txt") != 0) {
     std::cerr << "Error deleting output_dpll.txt" << std::endl;
   } else {
-    std::cout << "output_dpll.txt is deleted successfully" << std::endl;
+    std::cout << "\noutput_dpll.txt is deleted successfully";
   }
 
   return 0;

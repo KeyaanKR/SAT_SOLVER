@@ -1,14 +1,13 @@
-#include <atomic>
 #include <bits/stdc++.h>
-#include <mutex>
 
 class DPLL {
 private:
   std::set<std::string> assign_t, assign_f;
-  std::atomic<int> n_prop{0}, n_decs{0};
+  std::atomic<int> depth{0};
   std::atomic<bool> solution_found{false};
   std::mutex mtx;
 
+  // checks if a clause is a unit clause
   bool is_unit_clause(const std::string &clause) {
     std::istringstream iss(clause);
     std::vector<std::string> literals;
@@ -20,6 +19,7 @@ private:
     return literals.size() == 1;
   }
 
+  // removes the negation of a literal in a unit clause from all clauses
   void removeUnitfromClauses(std::vector<std::string> &cnf,
                              const std::string &unit) {
     for (auto &clause : cnf) {
@@ -29,7 +29,6 @@ private:
 
       while (iss >> word) {
         if (word != unit) {
-          // Only keep the word if it's not the unit
           words.push_back(word);
         }
       }
@@ -46,14 +45,13 @@ private:
     }
   }
 
+  // deletes the clausea containing the unit clause
   void deleteClause(std::vector<std::string> &cnf, const std::string &unit) {
     cnf.erase(std::remove_if(cnf.begin(), cnf.end(),
                              [&unit](const std::string &clause) {
                                std::istringstream iss(clause);
                                std::string word;
                                while (iss >> word) {
-                                 // if the unit is found in the clause, remove
-                                 // the clause
                                  if (word == unit) {
                                    return true;
                                  }
@@ -63,6 +61,7 @@ private:
               cnf.end());
   }
 
+  // finds pure literals in the cnf
   void find_pureLiterals(std::vector<std::string> cnf,
                          std::vector<std::string> &pureLiterals) {
     std::unordered_map<std::string, int> posLiteralCount;
@@ -82,7 +81,6 @@ private:
 
     for (const auto &literal : posLiteralCount) {
       if (literal.second > 0 && negLiteralCount[literal.first] == 0) {
-        // to prevent unit clause from being added to pureLiterals
         if (std::find(pureLiterals.begin(), pureLiterals.end(),
                       literal.first) == pureLiterals.end())
           pureLiterals.push_back(literal.first);
@@ -99,69 +97,59 @@ private:
   }
 
   bool solve(std::vector<std::string> cnf, std::set<std::string> literals,
-             int depth = 0) {
+             std::set<std::string> local_assign_t,
+             std::set<std::string> local_assign_f, int depth = 0) {
 
-    // if another thread found the solution, stop
+    // if a solution has been found by another thread, return false
     if (solution_found.load(std::memory_order_acquire))
       return false;
 
-    std::vector<std::string> new_t, new_f;
-    n_decs.fetch_add(1, std::memory_order_relaxed);
-    // std::clog << "\rDecisions = " << n_decs.load(std::memory_order_acquire)
-    //           << std::flush;
-
-    // remove duplicate clauses
+    // remove duplicates
     std::sort(cnf.begin(), cnf.end());
     cnf.erase(std::unique(cnf.begin(), cnf.end()), cnf.end());
 
-    // find unit clauses
+    // checks for unit clauses
     std::vector<std::string> units;
     std::copy_if(
         cnf.begin(), cnf.end(), std::back_inserter(units),
         [this](const std::string &clause) { return is_unit_clause(clause); });
 
-    // find pure literals
+    // checks for pure literals
     find_pureLiterals(cnf, units);
 
-    // if there are unit clauses
+    // assign the unit clauses and pure literals
     if (!units.empty()) {
-      std::lock_guard<std::mutex> lock(mtx);
       for (const auto &unit : units) {
-        n_prop++;
-        // if the unit is a negation
+        // removes clauses containing the unit clause,
+        // and removes the negation of the unit clause from all clauses
         if (unit[0] == '~') {
-          new_f.push_back(unit.substr(1));
-          assign_f.insert(unit.substr(1));
-          // remove the clauses with the unit
+          local_assign_f.insert(unit.substr(1));
           deleteClause(cnf, unit);
-          // remove the negation from clauses
           removeUnitfromClauses(cnf, unit.substr(1));
         } else {
-          new_t.push_back(unit);
-          assign_t.insert(unit);
-          // remove the clauses with the unit
+          local_assign_t.insert(unit);
           deleteClause(cnf, unit);
-          // remove the unit from the clauses
           removeUnitfromClauses(cnf, '~' + unit);
         }
       }
     }
 
-    // if the cnf is empty, return true
     if (cnf.empty()) {
-      if (!solution_found.exchange(true, std::memory_order_release))
+      // if other threads have not found a solution yet and this thread has
+      // write the assignment to the global variables, and change the flag
+      if (!solution_found.exchange(true, std::memory_order_release)) {
+        // to prevent simultaneous writing to the global variables
+        std::lock_guard<std::mutex> lock(mtx);
+        assign_t = local_assign_t;
+        assign_f = local_assign_f;
         return true;
+      }
       return false;
     }
-    // if there is an empty clause, return false
+
+    // if there are empty clauses, return false
     if (std::any_of(cnf.begin(), cnf.end(),
                     [](const std::string &clause) { return clause.empty(); })) {
-      std::lock_guard<std::mutex> lock(mtx);
-      // remove the assignments
-      for (std::string literal : new_t)
-        assign_t.erase(literal);
-      for (std::string literal : new_f)
-        assign_f.erase(literal);
       return false;
     }
 
@@ -188,42 +176,57 @@ private:
       std::vector<std::future<bool>> futures;
 
       if (depth < 2) {
+        // create two threads to explore the two branches
+
+        // one thread with the literal assigned to true
+        auto local_assign_t_true = local_assign_t;
+        auto local_assign_f_true = local_assign_f;
+        local_assign_t_true.insert(literal);
+        // one thread with the literal assigned to false
+        auto local_assign_t_false = local_assign_t;
+        auto local_assign_f_false = local_assign_f;
+        local_assign_f_false.insert(literal);
+
+        // launch the threads
+        // emplace_back is used to avoid copying the futures, to save memory
         futures.emplace_back(std::async(
-            std::launch::async, [this, new_cnf_t, literals, depth]() {
-              return solve(new_cnf_t, literals, depth + 1);
+            std::launch::async, [this, new_cnf_t, literals, local_assign_t_true,
+                                 local_assign_f_true, depth]() {
+              return solve(new_cnf_t, literals, local_assign_t_true,
+                           local_assign_f_true, depth + 1);
             }));
-        futures.emplace_back(std::async(
-            std::launch::async, [this, new_cnf_f, literals, depth]() {
-              return solve(new_cnf_f, literals, depth + 1);
-            }));
+        futures.emplace_back(
+            std::async(std::launch::async,
+                       [this, new_cnf_f, literals, local_assign_t_false,
+                        local_assign_f_false, depth]() {
+                         return solve(new_cnf_f, literals, local_assign_t_false,
+                                      local_assign_f_false, depth + 1);
+                       }));
+
         bool result = false;
+        // if one of the threads found a solution, return true
         for (auto &f : futures) {
           if (f.get())
             result = true;
         }
 
-        if (!result) {
-          std::lock_guard<std::mutex> lock(mtx);
-          for (std::string literal : new_t)
-            assign_t.erase(literal);
-          for (std::string literal : new_f)
-            assign_f.erase(literal);
-        }
-
         return result;
       } else {
-        return solve(new_cnf_t, literals, depth + 1) ||
-               solve(new_cnf_f, literals, depth + 1);
+        auto local_assign_t_true = local_assign_t;
+        auto local_assign_f_true = local_assign_f;
+        local_assign_t_true.insert(literal);
+
+        auto local_assign_t_false = local_assign_t;
+        auto local_assign_f_false = local_assign_f;
+        local_assign_f_false.insert(literal);
+
+        return solve(new_cnf_t, literals, local_assign_t_true,
+                     local_assign_f_true, depth + 1) ||
+               solve(new_cnf_f, literals, local_assign_t_false,
+                     local_assign_f_false, depth + 1);
       }
     }
 
-    {
-      std::lock_guard<std::mutex> lock(mtx);
-      for (std::string literal : new_t)
-        assign_t.erase(literal);
-      for (std::string literal : new_f)
-        assign_f.erase(literal);
-    }
     return false;
   }
 
@@ -252,7 +255,10 @@ public:
       }
     }
 
-    if (solve(cnf, literals)) {
+    std::cout << "Solving " << filename << "..." << std::endl;
+
+    if (solve(cnf, literals, std::set<std::string>(),
+              std::set<std::string>())) {
       std::cout << "\nSATISFIABLE" << std::endl;
       std::cout << "assignment written to output_dpll.txt" << std::endl;
       std::ofstream output("output_dpll.txt");
